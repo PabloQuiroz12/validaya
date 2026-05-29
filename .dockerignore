@@ -1,0 +1,16 @@
+.git
+.gitignore
+.idea
+.vscode
+**/node_modules
+**/target
+**/dist
+**/.vite
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.local
+**/face_db
+**/*.log
+README.md
+docker_setup_validaya/postgres/data
