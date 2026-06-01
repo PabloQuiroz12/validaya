@@ -1,0 +1,140 @@
+# ============================================================================
+# docker-compose.yml — Ambiente QA local ValidaYa
+# ============================================================================
+# Levanta 3 servicios:
+#   - postgres        : Postgres 16 con 2 bases (validaya_db + face_db)
+#   - backend         : Spring Boot 4, puerto 8080 (override vía env)
+#   - facial-recognition : Flask + DeepFace, puerto 5000
+#
+# El frontend NO va dockerizado por decisión del grupo QA: se corre
+# directamente en host con `pnpm dev` (Vite dev server con HMR).
+# Para deployado se usa Vercel desde el fork.
+#
+# Uso:
+#   cp .env.example .env             # editar con secretos reales locales
+#   docker compose up -d --build     # primer arranque
+#   docker compose logs -f backend   # seguir logs específicos
+#   docker compose down              # parar (volúmenes persisten)
+#   docker compose down -v           # parar y borrar todo (reset DB)
+# ============================================================================
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: validaya-qa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Expuesto en host para que DBeaver/DataGrip puedan conectarse.
+      # Si choca con otra Postgres local, cambiar el lado izquierdo.
+      # 5432 host ocupado por granja5hermanos-postgres → remapeado a 5434.
+      # Solo cambia el puerto host; servicios internos usan postgres:5432.
+      - "5434:5432"
+    volumes:
+      # Data persistente entre `down`/`up`. Borrar con `down -v`.
+      - postgres_data:/var/lib/postgresql/data
+      # Scripts de init — solo se ejecutan en primer arranque del volumen.
+      - ./docker_setup_validaya/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - validaya-qa
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker_setup_validaya/backend/Dockerfile
+    container_name: validaya-qa-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      facial-recognition:
+        condition: service_healthy
+    environment:
+      # Spring relaxed binding: SPRING_DATASOURCE_URL → spring.datasource.url
+      # Esto PISA application.properties (cuyo valor está hardcodeado a Neon).
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+      SERVER_PORT: ${SERVER_PORT}
+      # JWT/AES — pisan los hardcodeados de application.properties.
+      SECURITY_JWT_TOKEN_SECRET_KEY: ${SECURITY_JWT_TOKEN_SECRET_KEY}
+      VALIDAYA_AES_SECRET_KEY: ${VALIDAYA_AES_SECRET_KEY}
+      SECURITY_JWT_TOKEN_EXPIRE_LENGTH: ${SECURITY_JWT_TOKEN_EXPIRE_LENGTH}
+      VALIDAYA_QR_CODE_EXPIRATION_TIME: ${VALIDAYA_QR_CODE_EXPIRATION_TIME}
+      # Stereum — sandbox, no las personales del autor.
+      STEREUM_CALLBACK_URL: ${STEREUM_CALLBACK_URL}
+      STEREUM_USERNAME: ${STEREUM_USERNAME}
+      STEREUM_CLAVE_INTEGRACION: ${STEREUM_CLAVE_INTEGRACION}
+      STEREUM_BASE_URL: ${STEREUM_BASE_URL}
+      STEREUM_CONNECT_TIMEOUT: ${STEREUM_CONNECT_TIMEOUT}
+      STEREUM_READ_TIMEOUT: ${STEREUM_READ_TIMEOUT}
+      STEREUM_API_KEY: ${STEREUM_API_KEY}
+      STEREUM_PUBLIC_KEY: ${STEREUM_PUBLIC_KEY}
+      STEREUM_MAX_RETRIES: ${STEREUM_MAX_RETRIES}
+      STEREUM_RETRY_DELAY: ${STEREUM_RETRY_DELAY}
+      STEREUM_WEBHOOK_MAX_AGE: ${STEREUM_WEBHOOK_MAX_AGE}
+      STEREUM_DEFAULT_CURRENCY: ${STEREUM_DEFAULT_CURRENCY}
+      STEREUM_DEFAULT_COUNTRY: ${STEREUM_DEFAULT_COUNTRY}
+      STEREUM_DEFAULT_NETWORK: ${STEREUM_DEFAULT_NETWORK}
+      STEREUM_DEFAULT_BLOCKCHAIN_CURRENCY: ${STEREUM_DEFAULT_BLOCKCHAIN_CURRENCY}
+      # Workaround VAL nuevo (stereum.tester-enabled={STEREUM.TESTER_ENABLED}
+      # con $ faltante en application.properties): seteamos vía env,
+      # Spring relaxed binding STEREUM_TESTER_ENABLED → stereum.tester-enabled
+      # pisa el valor literal del properties.
+      STEREUM_TESTER_ENABLED: ${STEREUM_TESTER_ENABLED}
+      # URL del facial — DNS interno de Compose resuelve "facial-recognition".
+      FACIAL_RECOGNITION_API_URL: ${FACIAL_RECOGNITION_API_URL}
+    ports:
+      - "8080:8080"
+    networks:
+      - validaya-qa
+
+  facial-recognition:
+    build:
+      context: ./modelado facial
+      dockerfile: Dockerfile
+    container_name: validaya-qa-facial
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Variables que db.py espera (nombres exactos según el código).
+      DB_HOST: ${FACIAL_DB_HOST}
+      DB_PORT: ${FACIAL_DB_PORT}
+      DB_NAME: ${FACIAL_DB_NAME}
+      DB_USER: ${FACIAL_DB_USER}
+      DB_PASSWORD: ${FACIAL_DB_PASSWORD}
+      PORT: ${FACIAL_PORT}
+    ports:
+      # Expuesto en host para Postman / inspección manual.
+      - "5000:5000"
+    volumes:
+      # Persistencia de pesos descargados de DeepFace (~/.deepface).
+      # Evita re-descargar modelos en cada rebuild.
+      - facial_models:/root/.deepface
+    networks:
+      - validaya-qa
+
+# ─── Volumes nombrados (manejados por Docker, NO en el repo) ────────────────
+volumes:
+  postgres_data:
+    name: validaya-qa-postgres-data
+  facial_models:
+    name: validaya-qa-facial-models
+
+# ─── Red interna ────────────────────────────────────────────────────────────
+networks:
+  validaya-qa:
+    name: validaya-qa
+    driver: bridge

@@ -7,6 +7,8 @@ __pycache__/
 *.pyo
 venv/
 .env
+.env.local
+.env.*.local
 
 # ─── Logs ───
 *.log
@@ -15,3 +17,16 @@ venv/
 .idea/
 .vscode/
 *.iml
+
+# ─── Maven / Java ───
+target/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# ─── Node / frontend ───
+node_modules/
+dist/
+.vite/
+
+# ─── Docker volumes locales del setup QA ───
+docker_setup_validaya/postgres/data/
