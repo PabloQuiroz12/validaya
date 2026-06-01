@@ -31,7 +31,9 @@ services:
     ports:
       # Expuesto en host para que DBeaver/DataGrip puedan conectarse.
       # Si choca con otra Postgres local, cambiar el lado izquierdo.
-      - "5432:5432"
+      # 5432 host ocupado por granja5hermanos-postgres → remapeado a 5434.
+      # Solo cambia el puerto host; servicios internos usan postgres:5432.
+      - "5434:5432"
     volumes:
       # Data persistente entre `down`/`up`. Borrar con `down -v`.
       - postgres_data:/var/lib/postgresql/data

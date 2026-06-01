@@ -6,8 +6,14 @@
 # en Linux — bug documentado como VAL nuevo). Mantenemos el original sin tocar
 # como evidencia; este archivo es el que usa docker-compose.
 # ============================================================================
+# FIX AMBIENTE (QA): base pineada a -slim-bookworm. La tag `python:3.10-slim`
+# sin pin derivó a Debian 13 (Trixie), donde `libgl1-mesa-glx` fue eliminado y
+# `libglib2.0-0` renombrado a `libglib2.0-0t64` → `apt-get install` fallaba.
+# Bookworm conserva los nombres de paquete originales. Solo cambia la base
+# image; la lógica Python, CMD, puertos, env y volúmenes quedan intactos.
+# ============================================================================
 
-FROM python:3.10-slim
+FROM python:3.10-slim-bookworm
 
 # OpenCV runtime deps (no incluidas en slim).
 RUN apt-get update && apt-get install -y --no-install-recommends \
